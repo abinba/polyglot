@@ -1,13 +1,13 @@
 # Polyglot - Language Learning Application
 
-A modern and interactive language learning application built with Python and customtkinter. Learn new vocabulary through flashcards, test your knowledge, and track your progress.
+A very simple and interactive language learning application built with Python and customtkinter. Learn new vocabulary through flashcards, test your knowledge, and track your progress.
 
 ## Features
 
 - Personalized learning experience based on your language preferences and level
-- AI-powered vocabulary generation using OpenAI
+- AI-powered vocabulary generation
 - Interactive flashcards with translations and example sentences
-- Knowledge testing with multiple choice and typing exercises
+- Knowledge testing with multiple choice and sentence filling exercises
 - Progress tracking and statistics
 - Configurable learning settings
 

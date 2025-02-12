@@ -7,8 +7,8 @@ from openai import OpenAI, BaseModel
 
 
 class LlmProviders(Enum):
-    OPENAI = 'openai'
-    ASYNC_OPENAI = 'async-openai'
+    OPENAI = "openai"
+    ASYNC_OPENAI = "async-openai"
 
 
 @dataclass
@@ -35,7 +35,7 @@ class LlmProvider(ABC):
         top_p: Optional[float] = None,
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
-        stop: Optional[list[str]] = None
+        stop: Optional[list[str]] = None,
     ) -> LlmChatCompletionResponse:
         pass
 
@@ -54,7 +54,7 @@ class OpenAIProvider(LlmProvider):
         params = {
             "model": self.model,
             "messages": messages,
-            "response_format": response_format
+            "response_format": response_format,
         }
 
         for key, value in kwargs.items():
@@ -69,5 +69,5 @@ class OpenAIProvider(LlmProvider):
                 completion_tokens=response.usage.completion_tokens,
                 prompt_tokens=response.usage.prompt_tokens,
                 total_tokens=response.usage.total_tokens,
-            )
+            ),
         )
