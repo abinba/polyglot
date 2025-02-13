@@ -4,11 +4,13 @@ from pathlib import Path
 from polyglot.controllers.user_controller import UserController
 from polyglot.controllers.vocabulary_controller import VocabularyController
 from polyglot.views.onboarding_view import OnboardingView
+from polyglot.views.menu_view import MenuView
 from polyglot.views.flashcard_view import FlashcardView
 from polyglot.views.test_view import TestView
 from polyglot.views.sentence_test_view import SentenceTestView
 from polyglot.views.progress_view import ProgressView
 from polyglot.views.settings_view import SettingsView
+from polyglot.views.add_word_view import AddWordView
 
 from dotenv import load_dotenv
 
@@ -21,7 +23,10 @@ class PolyglotApp(ctk.CTk):
 
         # Configure window
         self.title("Polyglot - Language Learning")
-        self.geometry("900x600")
+        self.geometry("1024x768")
+
+        # Set minimum size to ensure UI elements are visible
+        self.minsize(900, 700)
 
         # Set the theme
         ctk.set_appearance_mode("dark")
@@ -48,7 +53,7 @@ class PolyglotApp(ctk.CTk):
         else:
             # Generate new words for today
             self.generate_daily_words()
-            self.show_flashcards()
+            self.show_menu()
 
     def generate_daily_words(self):
         """Generate new words for today's learning session if needed"""
@@ -73,20 +78,47 @@ class PolyglotApp(ctk.CTk):
                 self,
                 self.user_controller,
                 self.vocabulary_controller,
-                self.show_flashcards,
+                self.show_menu,
             )
         self._switch_view("onboarding")
 
-    def show_flashcards(self):
-        """Show the flashcard learning view"""
+    def show_menu(self):
+        """Show the main menu view"""
+        if "menu" not in self.views:
+            self.views["menu"] = MenuView(
+                self,
+                self.vocabulary_controller,
+                self.user_controller,
+                {
+                    "daily_words": self.show_daily_words,
+                    "exercise": self.show_exercise_session,
+                    "word_test": self.show_word_test,
+                    "sentence_test": self.show_sentence_test,
+                    "progress": self.show_progress,
+                    "add_word": self.show_add_word,
+                    "settings": self.show_settings,
+                },
+            )
+        self._switch_view("menu")
+
+    def show_daily_words(self):
+        """Show the daily words flashcard view"""
         if "flashcards" not in self.views:
             self.views["flashcards"] = FlashcardView(
-                self, self.vocabulary_controller, self.show_test
+                self, self.vocabulary_controller, self.show_menu
             )
         self._switch_view("flashcards")
 
-    def show_test(self):
-        """Show the translation test view"""
+    def show_exercise_session(self):
+        """Show the complete exercise session (flashcards -> test -> sentence test)"""
+        if "flashcards" not in self.views:
+            self.views["flashcards"] = FlashcardView(
+                self, self.vocabulary_controller, self.show_word_test
+            )
+        self._switch_view("flashcards")
+
+    def show_word_test(self):
+        """Show the word translation test view"""
         if "test" not in self.views:
             self.views["test"] = TestView(
                 self, self.vocabulary_controller, self.show_sentence_test
@@ -97,7 +129,7 @@ class PolyglotApp(ctk.CTk):
         """Show the sentence test view"""
         if "sentence_test" not in self.views:
             self.views["sentence_test"] = SentenceTestView(
-                self, self.vocabulary_controller, self.show_progress
+                self, self.vocabulary_controller, self.show_menu
             )
         self._switch_view("sentence_test")
 
@@ -105,15 +137,27 @@ class PolyglotApp(ctk.CTk):
         """Show the progress view"""
         if "progress" not in self.views:
             self.views["progress"] = ProgressView(
-                self, self.vocabulary_controller, self.show_flashcards
+                self, self.vocabulary_controller, self.show_menu
             )
         self._switch_view("progress")
+
+    def show_add_word(self):
+        """Show the add word view"""
+        # Always create a new AddWordView to ensure a fresh form
+        if "add_word" in self.views:
+            self.views["add_word"].destroy()
+        self.views["add_word"] = AddWordView(
+            self,
+            self.vocabulary_controller,
+            lambda: None,  # Empty callback to prevent auto-navigation
+        )
+        self._switch_view("add_word")
 
     def show_settings(self):
         """Show the settings view"""
         if "settings" not in self.views:
             self.views["settings"] = SettingsView(
-                self, self.user_controller, self.show_flashcards
+                self, self.user_controller, self.show_menu
             )
         self._switch_view("settings")
 

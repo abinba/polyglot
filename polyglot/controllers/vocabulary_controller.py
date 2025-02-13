@@ -82,10 +82,17 @@ class VocabularyController:
         topics: List[str],
         include_phrases: bool,
         exclude_words: List[str] = None,
+        custom_word: str = None,
     ) -> List[Dict]:
         """Generate new words using OpenAI API"""
         if not self.api_key:
             raise ValueError("OpenAI API key not found in environment variables")
+
+        # If custom_word is provided, generate details for just that word
+        if custom_word:
+            return [
+                self.generate_word_details(custom_word, native_lang, target_lang, level)
+            ]
 
         # Get existing words to exclude
         existing_words = self.vocabulary["word"].tolist()
@@ -138,6 +145,52 @@ class VocabularyController:
         # Process the response and ensure all fields are present
         words = Words.model_validate(response.dict_response)
         return words.dict()["words"]
+
+    def generate_word_details(
+        self, word: str, native_lang: str, target_lang: str, level: str
+    ) -> Dict:
+        """Generate details for a single word using OpenAI API"""
+        if not self.api_key:
+            raise ValueError("OpenAI API key not found in environment variables")
+
+        system_prompt = {
+            "role": "system",
+            "content": """You are a language learning assistant. Generate details for the given word in the requested format.
+            The response should include:
+            - word: the word in the target language (use the provided word)
+            - translation: the word in the native language
+            - example: a natural example sentence using the word
+            - example_translation: translation of the example sentence
+            - topic: a relevant topic category
+            - level: the CEFR level (use the provided level)
+            - sentence_to_fill: a different example sentence with a blank where the word should go
+            - sentence_to_fill_translation: translation of the sentence_to_fill with the word included
+            - options: list of 4 words (including the correct answer) that could fit grammatically
+            - correct_answer: the correct word (same as the provided word)
+            
+            The sentence_to_fill should be different from the example sentence.
+            The options should be grammatically valid but only one (the correct answer) should make sense in context.""",
+        }
+
+        user_prompt = {
+            "role": "user",
+            "content": f"""Generate details for this word/phrase:
+            - Word: {word}
+            - From {native_lang} to {target_lang}
+            - Level: {level}
+            """,
+        }
+
+        response: LlmChatCompletionResponse = self.llm_provider.get_chat_completion(
+            messages=[system_prompt, user_prompt],
+            response_format=WordResponse,
+            temperature=0.7,
+            max_tokens=1000,
+        )
+
+        # Process the response and ensure all fields are present
+        word_details = WordResponse.model_validate(response.dict_response)
+        return word_details.dict()
 
     def add_words(self, words: List[Dict]):
         """Add new words to vocabulary"""

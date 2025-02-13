@@ -24,6 +24,8 @@ class UserController:
                 "words_per_day": 5,
                 "flashcard_delay": 5,
                 "test_word_count": 10,
+                "min_practice_count": 7,  # Minimum practices to consider a word learnt
+                "min_success_rate": 75,  # Minimum success rate (%) to consider a word learnt
             }
 
     def save_settings(self):
@@ -78,3 +80,13 @@ class UserController:
     def test_word_count(self) -> int:
         """Get number of words for testing"""
         return self.settings.get("test_word_count", 10)
+
+    @property
+    def min_practice_count(self) -> int:
+        """Get minimum number of practices to consider a word learnt"""
+        return self.settings.get("min_practice_count", 7)
+
+    @property
+    def min_success_rate(self) -> float:
+        """Get minimum success rate (%) to consider a word learnt"""
+        return self.settings.get("min_success_rate", 75)

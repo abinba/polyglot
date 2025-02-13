@@ -23,6 +23,16 @@ class ProgressView(ctk.CTkFrame):
         )
         self.title.pack(pady=20)
 
+        # Info text
+        min_practice = self.vocab_controller.user_controller.min_practice_count
+        min_success = self.vocab_controller.user_controller.min_success_rate
+        info_text = f"A word is considered 'learnt' when you have practiced it at least {min_practice} times "
+        info_text += f"with a success rate of {min_success}% or higher."
+        self.info_label = ctk.CTkLabel(
+            self, text=info_text, font=("Helvetica", 10), wraplength=600
+        )
+        self.info_label.pack(pady=5)
+
         # Progress frame
         self.progress_frame = ctk.CTkFrame(self)
         self.progress_frame.pack(pady=20, padx=40, fill="both", expand=True)
@@ -31,11 +41,23 @@ class ProgressView(ctk.CTkFrame):
         self.stats_frame = ctk.CTkFrame(self.progress_frame)
         self.stats_frame.pack(pady=10, padx=20, fill="x")
 
-        # Words learned label
-        self.words_learned_label = ctk.CTkLabel(
+        # Total words label
+        self.total_words_label = ctk.CTkLabel(
             self.stats_frame, text="", font=("Helvetica", 16)
         )
-        self.words_learned_label.pack(pady=5)
+        self.total_words_label.pack(pady=5)
+
+        # Words learnt label
+        self.words_learnt_label = ctk.CTkLabel(
+            self.stats_frame, text="", font=("Helvetica", 16)
+        )
+        self.words_learnt_label.pack(pady=5)
+
+        # Words in progress label
+        self.words_in_progress_label = ctk.CTkLabel(
+            self.stats_frame, text="", font=("Helvetica", 16)
+        )
+        self.words_in_progress_label.pack(pady=5)
 
         # Average success rate label
         self.success_rate_label = ctk.CTkLabel(
@@ -44,16 +66,25 @@ class ProgressView(ctk.CTkFrame):
         self.success_rate_label.pack(pady=5)
 
         # Scrollable frame for vocabulary list
-        self.vocab_frame = ctk.CTkScrollableFrame(self.progress_frame, height=400)
+        self.vocab_frame = ctk.CTkScrollableFrame(
+            self.progress_frame, height=350
+        )  # Reduced height
         self.vocab_frame.pack(pady=10, padx=20, fill="both", expand=True)
 
-        # Navigation frame
+        # Add a spacer frame to push content up
+        spacer = ctk.CTkFrame(self, height=20)
+        spacer.pack(fill="x")
+
+        # Navigation frame at the bottom
         self.nav_frame = ctk.CTkFrame(self)
-        self.nav_frame.pack(pady=20, fill="x")
+        self.nav_frame.pack(side="bottom", pady=20, padx=20, fill="x")
 
         # Continue button
         self.continue_btn = ctk.CTkButton(
-            self.nav_frame, text="Continue Learning", command=self.on_complete
+            self.nav_frame,
+            text="Continue Learning",
+            command=self.on_complete,
+            width=200,  # Make button wider
         )
         self.continue_btn.pack(side="right", padx=20)
 
@@ -64,14 +95,55 @@ class ProgressView(ctk.CTkFrame):
 
         # Calculate statistics
         total_words = len(progress_data)
-        words_practiced = len(progress_data[progress_data["times_practiced"] > 0])
+
+        # Get learning thresholds from settings
+        min_practice = self.vocab_controller.user_controller.min_practice_count
+        min_success = (
+            self.vocab_controller.user_controller.min_success_rate / 100
+        )  # Convert to decimal
+
+        # Words learnt (practiced >= min_practice times with >= min_success rate)
+        words_learnt = len(
+            progress_data[
+                (progress_data["times_practiced"] >= min_practice)
+                & (
+                    progress_data["correct_answers"] / progress_data["times_practiced"]
+                    >= min_success
+                )
+            ]
+        )
+
+        # Words in progress (practiced but not yet learnt)
+        words_in_progress = len(
+            progress_data[
+                (progress_data["times_practiced"] > 0)
+                & ~(
+                    (progress_data["times_practiced"] >= min_practice)
+                    & (
+                        progress_data["correct_answers"]
+                        / progress_data["times_practiced"]
+                        >= min_success
+                    )
+                )
+            ]
+        )
+
+        # Average success rate for practiced words
+        practiced_words = progress_data[progress_data["times_practiced"] > 0]
         avg_success_rate = (
-            progress_data["success_rate"].mean() * 100 if not progress_data.empty else 0
+            (
+                practiced_words["correct_answers"] / practiced_words["times_practiced"]
+            ).mean()
+            * 100
+            if not practiced_words.empty
+            else 0
         )
 
         # Update statistics labels
-        self.words_learned_label.configure(
-            text=f"Words Learned: {words_practiced}/{total_words}"
+        self.total_words_label.configure(text=f"Total Words: {total_words}")
+        self.words_learnt_label.configure(text=f"Words Learnt: {words_learnt}")
+        self.words_in_progress_label.configure(
+            text=f"Words in Progress: {words_in_progress}"
         )
         self.success_rate_label.configure(
             text=f"Average Success Rate: {avg_success_rate:.1f}%"
@@ -117,20 +189,43 @@ class ProgressView(ctk.CTkFrame):
 
             # Progress indicators
             times_practiced = word["times_practiced"]
-            success_rate = word["success_rate"] * 100 if times_practiced > 0 else 0
+
+            # Determine status and color
+            # Get learning thresholds from settings
+            min_practice = self.vocab_controller.user_controller.min_practice_count
+            min_success = (
+                self.vocab_controller.user_controller.min_success_rate / 100
+            )  # Convert to decimal
+
+            if (
+                times_practiced >= min_practice
+                and (word["correct_answers"] / times_practiced) >= min_success
+            ):
+                word_frame.configure(fg_color="green")  # Learnt
+                status = "Learnt"
+            elif times_practiced > 0:
+                success_rate = (word["correct_answers"] / times_practiced) * 100
+                if success_rate >= 60:
+                    word_frame.configure(fg_color="orange")  # Good progress
+                    status = "In Progress"
+                else:
+                    word_frame.configure(fg_color="red")  # Needs practice
+                    status = "Needs Practice"
+            else:
+                status = "Not Started"
+
+            # Create progress text
+            if times_practiced > 0:
+                success_rate = (word["correct_answers"] / times_practiced) * 100
+                progress_text = (
+                    f"{success_rate:.1f}% ({times_practiced} attempts) - {status}"
+                )
+            else:
+                progress_text = status
 
             progress_label = ctk.CTkLabel(
                 word_frame,
-                text=f"{success_rate:.1f}% ({times_practiced} attempts)",
+                text=progress_text,
                 font=("Helvetica", 14),
             )
             progress_label.pack(side="right", padx=10)
-
-            # Color coding based on success rate
-            if times_practiced > 0:
-                if success_rate >= 80:
-                    word_frame.configure(fg_color="green")
-                elif success_rate >= 50:
-                    word_frame.configure(fg_color="orange")
-                else:
-                    word_frame.configure(fg_color="red")

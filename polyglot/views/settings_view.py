@@ -66,6 +66,42 @@ class SettingsView(ctk.CTkFrame):
         )
         self.test_word_count_entry.pack(side="right", padx=10)
 
+        # Minimum practice count setting
+        self.min_practice_frame = ctk.CTkFrame(self.settings_frame)
+        self.min_practice_frame.pack(pady=10, padx=20, fill="x")
+
+        practice_label = ctk.CTkLabel(
+            self.min_practice_frame,
+            text="Minimum practices to learn:",
+            font=("Helvetica", 16),
+            tooltip="Number of times a word must be practiced to be considered learnt",
+        )
+        practice_label.pack(side="left", padx=10)
+
+        self.min_practice_var = ctk.StringVar()
+        self.min_practice_entry = ctk.CTkEntry(
+            self.min_practice_frame, width=100, textvariable=self.min_practice_var
+        )
+        self.min_practice_entry.pack(side="right", padx=10)
+
+        # Minimum success rate setting
+        self.min_success_frame = ctk.CTkFrame(self.settings_frame)
+        self.min_success_frame.pack(pady=10, padx=20, fill="x")
+
+        success_label = ctk.CTkLabel(
+            self.min_success_frame,
+            text="Minimum success rate (%):",
+            font=("Helvetica", 16),
+            tooltip="Required success rate to consider a word learnt",
+        )
+        success_label.pack(side="left", padx=10)
+
+        self.min_success_var = ctk.StringVar()
+        self.min_success_entry = ctk.CTkEntry(
+            self.min_success_frame, width=100, textvariable=self.min_success_var
+        )
+        self.min_success_entry.pack(side="right", padx=10)
+
         # Navigation frame
         self.nav_frame = ctk.CTkFrame(self)
         self.nav_frame.pack(pady=20, fill="x")
@@ -89,6 +125,8 @@ class SettingsView(ctk.CTkFrame):
         self.words_per_day_var.set(str(settings.get("words_per_day", 5)))
         self.flashcard_delay_var.set(str(settings.get("flashcard_delay", 5)))
         self.test_word_count_var.set(str(settings.get("test_word_count", 10)))
+        self.min_practice_var.set(str(settings.get("min_practice_count", 7)))
+        self.min_success_var.set(str(settings.get("min_success_rate", 75)))
 
     def save_settings(self):
         """Save settings and return to previous view"""
@@ -97,12 +135,16 @@ class SettingsView(ctk.CTkFrame):
             words_per_day = max(1, min(50, int(self.words_per_day_var.get())))
             flashcard_delay = max(1, min(30, int(self.flashcard_delay_var.get())))
             test_word_count = max(5, min(50, int(self.test_word_count_var.get())))
+            min_practice_count = max(1, min(20, int(self.min_practice_var.get())))
+            min_success_rate = max(1, min(100, int(self.min_success_var.get())))
 
             self.user_controller.update_settings(
                 {
                     "words_per_day": words_per_day,
                     "flashcard_delay": flashcard_delay,
                     "test_word_count": test_word_count,
+                    "min_practice_count": min_practice_count,
+                    "min_success_rate": min_success_rate,
                 }
             )
 
