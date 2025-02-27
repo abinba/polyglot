@@ -1,17 +1,27 @@
 import customtkinter as ctk
 from typing import Callable
 from polyglot.controllers.vocabulary_controller import VocabularyController
+from polyglot.views.base_view import BaseView
 
 
-class AddWordView(ctk.CTkFrame):
+class AddWordView(BaseView):
     def __init__(
-        self, parent, vocab_controller: VocabularyController, on_complete: Callable
+        self,
+        parent,
+        vocab_controller: VocabularyController,
+        on_complete: Callable,
+        on_menu_click: Callable = None,
     ):
         super().__init__(parent)
         self.vocab_controller = vocab_controller
         self.on_complete = on_complete
+        self.on_menu_click = on_menu_click
 
         self.setup_ui()
+
+        # Add back to menu button if callback provided
+        if self.on_menu_click:
+            self.add_back_to_menu_button(self.on_menu_click)
 
     def setup_ui(self):
         """Set up the main UI components"""
@@ -105,19 +115,6 @@ class AddWordView(ctk.CTkFrame):
             self.buttons_frame, text="Add Word", command=self.add_word, state="disabled"
         )
         self.add_btn.pack(side="left", padx=10, expand=True)
-
-        # Navigation frame at the bottom
-        self.nav_frame = ctk.CTkFrame(self)
-        self.nav_frame.pack(side="bottom", pady=20, padx=40, fill="x")
-
-        # Back to Menu button
-        self.back_btn = ctk.CTkButton(
-            self.nav_frame,
-            text="Back to Menu",
-            command=lambda: self.master.show_menu(),
-            width=200,
-        )
-        self.back_btn.pack(side="right", padx=10)
 
     def generate_word_details(self):
         """Generate word details using the LLM"""

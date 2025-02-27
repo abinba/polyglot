@@ -1,20 +1,18 @@
 import customtkinter as ctk
 from typing import Callable
 from polyglot.controllers.user_controller import UserController
-from polyglot.controllers.vocabulary_controller import VocabularyController
+from polyglot.views.base_view import BaseView
 
 
-class OnboardingView(ctk.CTkFrame):
+class OnboardingView(BaseView):
     def __init__(
         self,
         parent,
         user_controller: UserController,
-        vocab_controller: VocabularyController,
         on_complete: Callable,
     ):
         super().__init__(parent)
         self.user_controller = user_controller
-        self.vocab_controller = vocab_controller
         self.on_complete = on_complete
 
         self.current_step = 0
@@ -227,7 +225,7 @@ class OnboardingView(ctk.CTkFrame):
         )
 
         # Generate initial vocabulary
-        words = self.vocab_controller.generate_words(
+        words = self.user_controller.generate_words(
             native_lang=self.user_data["native_language"],
             target_lang=self.user_data["target_language"],
             level=self.user_data["level"],
@@ -236,7 +234,7 @@ class OnboardingView(ctk.CTkFrame):
         )
 
         # Add words to vocabulary
-        self.vocab_controller.add_words(words)
+        self.user_controller.add_words(words)
 
         # Complete onboarding
         self.on_complete()

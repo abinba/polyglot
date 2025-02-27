@@ -2,15 +2,21 @@ import customtkinter as ctk
 from typing import Callable
 import pandas as pd
 from polyglot.controllers.vocabulary_controller import VocabularyController
+from polyglot.views.base_view import BaseView
 
 
-class FlashcardView(ctk.CTkFrame):
+class FlashcardView(BaseView):
     def __init__(
-        self, parent, vocab_controller: VocabularyController, on_complete: Callable
+        self,
+        parent,
+        vocab_controller: VocabularyController,
+        on_complete: Callable,
+        on_menu_click: Callable = None,
     ):
         super().__init__(parent)
         self.vocab_controller = vocab_controller
         self.on_complete = on_complete
+        self.on_menu_click = on_menu_click
 
         self.current_word_idx = 0
         self.words = None
@@ -18,6 +24,10 @@ class FlashcardView(ctk.CTkFrame):
 
         self.setup_ui()
         self.load_words()
+
+        # Add back to menu button if callback provided
+        if self.on_menu_click:
+            self.add_back_to_menu_button(self.on_menu_click)
 
         # Bind keyboard events to the parent window
         self.master.bind("<space>", lambda e: self.flip_card())
@@ -80,7 +90,7 @@ class FlashcardView(ctk.CTkFrame):
 
     def load_words(self):
         """Load words for today's learning session"""
-        self.words = self.vocab_controller.get_daily_words(
+        self.words = self.vocab_controller.get_flashcard_words(
             count=self.vocab_controller.user_controller.words_per_day
         )
         if not self.words.empty:
@@ -135,7 +145,7 @@ class FlashcardView(ctk.CTkFrame):
         # Show completion message
         completion_label = ctk.CTkLabel(
             self.card_frame,
-            text="Great job!\nLet's test your knowledge!",
+            text="You've learned all new words!\nLet's test your knowledge!",
             font=("Helvetica", 20),
         )
         completion_label.pack(pady=20)

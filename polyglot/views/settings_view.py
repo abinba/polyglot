@@ -1,16 +1,28 @@
 import customtkinter as ctk
 from typing import Callable
 from polyglot.controllers.user_controller import UserController
+from polyglot.views.base_view import BaseView
 
 
-class SettingsView(ctk.CTkFrame):
-    def __init__(self, parent, user_controller: UserController, on_complete: Callable):
+class SettingsView(BaseView):
+    def __init__(
+        self,
+        parent,
+        user_controller: UserController,
+        on_complete: Callable,
+        on_menu_click: Callable = None,
+    ):
         super().__init__(parent)
         self.user_controller = user_controller
         self.on_complete = on_complete
+        self.on_menu_click = on_menu_click
 
         self.setup_ui()
         self.load_settings()
+
+        # Add back to menu button if callback provided
+        if self.on_menu_click:
+            self.add_back_to_menu_button(self.on_menu_click)
 
     def setup_ui(self):
         """Set up the main UI components"""

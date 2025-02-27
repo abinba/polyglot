@@ -8,6 +8,7 @@ from polyglot.views.menu_view import MenuView
 from polyglot.views.flashcard_view import FlashcardView
 from polyglot.views.test_view import TestView
 from polyglot.views.sentence_test_view import SentenceTestView
+from polyglot.views.sentence_translation_view import SentenceTranslationView
 from polyglot.views.progress_view import ProgressView
 from polyglot.views.settings_view import SettingsView
 from polyglot.views.add_word_view import AddWordView
@@ -49,11 +50,11 @@ class PolyglotApp(ctk.CTk):
     def initialize_app(self):
         """Initialize the application based on user data existence"""
         if not self.user_controller.user_exists():
-            self.show_onboarding()
+            self.show_view("onboarding")
         else:
             # Generate new words for today
             self.generate_daily_words()
-            self.show_menu()
+            self.show_view("menu")
 
     def generate_daily_words(self):
         """Generate new words for today's learning session if needed"""
@@ -71,102 +72,82 @@ class PolyglotApp(ctk.CTk):
 
             self.vocabulary_controller.add_words(new_words)
 
-    def show_onboarding(self):
-        """Show the onboarding view for new users"""
-        if "onboarding" not in self.views:
-            self.views["onboarding"] = OnboardingView(
-                self,
-                self.user_controller,
-                self.vocabulary_controller,
-                self.show_menu,
-            )
-        self._switch_view("onboarding")
-
-    def show_menu(self):
-        """Show the main menu view"""
-        if "menu" not in self.views:
-            self.views["menu"] = MenuView(
-                self,
-                self.vocabulary_controller,
-                self.user_controller,
-                {
-                    "daily_words": self.show_daily_words,
-                    "exercise": self.show_exercise_session,
-                    "word_test": self.show_word_test,
-                    "sentence_test": self.show_sentence_test,
-                    "progress": self.show_progress,
-                    "add_word": self.show_add_word,
-                    "settings": self.show_settings,
-                },
-            )
-        self._switch_view("menu")
-
-    def show_daily_words(self):
-        """Show the daily words flashcard view"""
-        if "flashcards" not in self.views:
-            self.views["flashcards"] = FlashcardView(
-                self, self.vocabulary_controller, self.show_menu
-            )
-        self._switch_view("flashcards")
-
-    def show_exercise_session(self):
-        """Show the complete exercise session (flashcards -> test -> sentence test)"""
-        if "flashcards" not in self.views:
-            self.views["flashcards"] = FlashcardView(
-                self, self.vocabulary_controller, self.show_word_test
-            )
-        self._switch_view("flashcards")
-
-    def show_word_test(self):
-        """Show the word translation test view"""
-        if "test" not in self.views:
-            self.views["test"] = TestView(
-                self, self.vocabulary_controller, self.show_sentence_test
-            )
-        self._switch_view("test")
-
-    def show_sentence_test(self):
-        """Show the sentence test view"""
-        if "sentence_test" not in self.views:
-            self.views["sentence_test"] = SentenceTestView(
-                self, self.vocabulary_controller, self.show_menu
-            )
-        self._switch_view("sentence_test")
-
-    def show_progress(self):
-        """Show the progress view"""
-        if "progress" not in self.views:
-            self.views["progress"] = ProgressView(
-                self, self.vocabulary_controller, self.show_menu
-            )
-        self._switch_view("progress")
-
-    def show_add_word(self):
-        """Show the add word view"""
-        # Always create a new AddWordView to ensure a fresh form
-        if "add_word" in self.views:
-            self.views["add_word"].destroy()
-        self.views["add_word"] = AddWordView(
-            self,
-            self.vocabulary_controller,
-            lambda: None,  # Empty callback to prevent auto-navigation
-        )
-        self._switch_view("add_word")
-
-    def show_settings(self):
-        """Show the settings view"""
-        if "settings" not in self.views:
-            self.views["settings"] = SettingsView(
-                self, self.user_controller, self.show_menu
-            )
-        self._switch_view("settings")
-
-    def _switch_view(self, view_name):
-        """Switch to the specified view"""
+    def show_view(self, view_type: str):
+        """Show a specific view"""
+        # Hide current view if exists
         if self.current_view:
             self.current_view.pack_forget()
 
-        self.current_view = self.views[view_name]
+        if view_type not in self.views:
+            # Create view if it doesn't exist yet
+            if view_type == "onboarding":
+                self.views[view_type] = OnboardingView(
+                    self, self.user_controller, lambda: self.show_view("menu")
+                )
+            elif view_type == "menu":
+                self.views[view_type] = MenuView(
+                    self,
+                    self.vocabulary_controller,
+                    lambda: self.show_view("flashcard"),  # daily_words_callback
+                    lambda: self.show_view("flashcard"),  # exercise_callback
+                    lambda: self.show_view("test"),  # word_test_callback
+                    lambda: self.show_view("sentence_test"),
+                    lambda: self.show_view("sentence_translation"),
+                    lambda: self.show_view("progress"),
+                    lambda: self.show_view("add_word"),
+                    lambda: self.show_view("settings"),
+                )
+            elif view_type == "flashcard":
+                self.views[view_type] = FlashcardView(
+                    self,
+                    self.vocabulary_controller,
+                    lambda: self.show_view("test"),
+                    on_menu_click=lambda: self.show_view("menu"),
+                )
+            elif view_type == "test":
+                self.views[view_type] = TestView(
+                    self,
+                    self.vocabulary_controller,
+                    lambda: self.show_view("sentence_test"),
+                    on_menu_click=lambda: self.show_view("menu"),
+                )
+            elif view_type == "sentence_test":
+                self.views[view_type] = SentenceTestView(
+                    self,
+                    self.vocabulary_controller,
+                    lambda: self.show_view("sentence_translation"),
+                    on_menu_click=lambda: self.show_view("menu"),
+                )
+            elif view_type == "sentence_translation":
+                self.views[view_type] = SentenceTranslationView(
+                    self,
+                    self.vocabulary_controller,
+                    lambda: self.show_view("progress"),
+                    on_menu_click=lambda: self.show_view("menu"),
+                )
+            elif view_type == "progress":
+                self.views[view_type] = ProgressView(
+                    self,
+                    self.vocabulary_controller,
+                    lambda: self.show_view("menu"),
+                    on_menu_click=lambda: self.show_view("menu"),
+                )
+            elif view_type == "add_word":
+                self.views[view_type] = AddWordView(
+                    self,
+                    self.vocabulary_controller,
+                    lambda: self.show_view("menu"),
+                    on_menu_click=lambda: self.show_view("menu"),
+                )
+            elif view_type == "settings":
+                self.views[view_type] = SettingsView(
+                    self,
+                    self.user_controller,
+                    lambda: self.show_view("menu"),
+                    on_menu_click=lambda: self.show_view("menu"),
+                )
+
+        self.current_view = self.views[view_type]
         self.current_view.pack(fill="both", expand=True)
 
 

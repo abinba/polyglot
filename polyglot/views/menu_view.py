@@ -1,21 +1,37 @@
 import customtkinter as ctk
-from typing import Callable, Dict
+from typing import Callable
 from polyglot.controllers.vocabulary_controller import VocabularyController
 from polyglot.controllers.user_controller import UserController
+from polyglot.views.base_view import BaseView
 
 
-class MenuView(ctk.CTkFrame):
+class MenuView(BaseView):
     def __init__(
         self,
         parent,
         vocab_controller: VocabularyController,
-        user_controller: UserController,
-        view_callbacks: Dict[str, Callable],
+        daily_words_callback: Callable,
+        exercise_callback: Callable,
+        word_test_callback: Callable,
+        sentence_test_callback: Callable,
+        sentence_translation_callback: Callable,
+        progress_callback: Callable,
+        add_word_callback: Callable,
+        settings_callback: Callable,
     ):
         super().__init__(parent)
         self.vocab_controller = vocab_controller
-        self.user_controller = user_controller
-        self.view_callbacks = view_callbacks
+        self.user_controller = self.vocab_controller.user_controller
+
+        # Store individual callbacks
+        self.daily_words_callback = daily_words_callback
+        self.exercise_callback = exercise_callback
+        self.word_test_callback = word_test_callback
+        self.sentence_test_callback = sentence_test_callback
+        self.sentence_translation_callback = sentence_translation_callback
+        self.progress_callback = progress_callback
+        self.add_word_callback = add_word_callback
+        self.settings_callback = settings_callback
 
         self.setup_ui()
         self.update_word_count()
@@ -56,7 +72,7 @@ class MenuView(ctk.CTkFrame):
             self.practice_frame,
             "📚 Words of the Day",
             "Review today's vocabulary",
-            lambda: self.view_callbacks["daily_words"](),
+            self.daily_words_callback,
         )
 
         # Exercise session
@@ -64,7 +80,7 @@ class MenuView(ctk.CTkFrame):
             self.practice_frame,
             "🎯 Exercise Session",
             "Complete practice session",
-            lambda: self.view_callbacks["exercise"](),
+            self.exercise_callback,
         )
 
         # Tests section
@@ -81,7 +97,7 @@ class MenuView(ctk.CTkFrame):
             self.tests_frame,
             "🔤 Word Translation",
             "Test word translations",
-            lambda: self.view_callbacks["word_test"](),
+            self.word_test_callback,
         )
 
         # Sentence filling test
@@ -89,7 +105,15 @@ class MenuView(ctk.CTkFrame):
             self.tests_frame,
             "📝 Sentence Filling",
             "Practice with sentences",
-            lambda: self.view_callbacks["sentence_test"](),
+            self.sentence_test_callback,
+        )
+
+        # Sentence translation test
+        self.sentence_translation_btn = self._create_menu_button(
+            self.tests_frame,
+            "🌐 Sentence Translation",
+            "Translate full sentences",
+            self.sentence_translation_callback,
         )
 
         # Tools section
@@ -106,7 +130,7 @@ class MenuView(ctk.CTkFrame):
             self.tools_frame,
             "📊 Progress",
             "Track your learning",
-            lambda: self.view_callbacks["progress"](),
+            self.progress_callback,
         )
 
         # Add word
@@ -114,7 +138,7 @@ class MenuView(ctk.CTkFrame):
             self.tools_frame,
             "➕ Add Word",
             "Add custom vocabulary",
-            lambda: self.view_callbacks["add_word"](),
+            self.add_word_callback,
         )
 
         # Settings
@@ -122,7 +146,7 @@ class MenuView(ctk.CTkFrame):
             self.tools_frame,
             "⚙️ Settings",
             "Configure app settings",
-            lambda: self.view_callbacks["settings"](),
+            self.settings_callback,
         )
 
     def _create_menu_button(self, parent, text, description, command):

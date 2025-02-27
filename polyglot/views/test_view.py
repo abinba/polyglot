@@ -2,15 +2,21 @@ import customtkinter as ctk
 from typing import Callable, List
 import random
 from polyglot.controllers.vocabulary_controller import VocabularyController
+from polyglot.views.base_view import BaseView
 
 
-class TestView(ctk.CTkFrame):
+class TestView(BaseView):
     def __init__(
-        self, parent, vocab_controller: VocabularyController, on_complete: Callable
+        self,
+        parent,
+        vocab_controller: VocabularyController,
+        on_complete: Callable,
+        on_menu_click: Callable = None,
     ):
         super().__init__(parent)
         self.vocab_controller = vocab_controller
         self.on_complete = on_complete
+        self.on_menu_click = on_menu_click
 
         self.current_question = 0
         self.test_words = None
@@ -20,6 +26,10 @@ class TestView(ctk.CTkFrame):
 
         self.setup_ui()
         self.load_test_words()
+
+        # Add back to menu button if callback provided
+        if self.on_menu_click:
+            self.add_back_to_menu_button(self.on_menu_click)
 
         # Bind space key to check/next
         self.master.bind("<space>", lambda e: self.handle_space())

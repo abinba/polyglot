@@ -4,6 +4,7 @@ from pathlib import Path
 import os
 from typing import List, Dict, Optional
 from pydantic import BaseModel
+from datetime import datetime
 
 from polyglot.services.llm_provider import OpenAIProvider, LlmChatCompletionResponse
 from polyglot.controllers.user_controller import UserController
@@ -24,6 +25,11 @@ class WordResponse(BaseModel):
 
 class Words(BaseModel):
     words: List[WordResponse]
+
+
+class TranslationCheckResponse(BaseModel):
+    is_correct: bool
+    comment: str
 
 
 class VocabularyController:
@@ -47,6 +53,37 @@ class VocabularyController:
             # Convert string representation of options list back to actual list
             if "options" in self.vocabulary.columns:
                 self.vocabulary["options"] = self.vocabulary["options"].apply(eval)
+
+            # Initialize last_practiced for existing entries if not present
+            if "last_practiced" not in self.vocabulary.columns:
+                self.vocabulary["last_practiced"] = datetime.now()
+            else:
+                # Convert string dates to datetime objects
+                try:
+                    self.vocabulary["last_practiced"] = pd.to_datetime(
+                        self.vocabulary["last_practiced"]
+                    )
+                except Exception:
+                    # If conversion fails, set to current datetime
+                    self.vocabulary["last_practiced"] = datetime.now()
+
+                # Fill NaN values with current datetime
+                if self.vocabulary["last_practiced"].isnull().any():
+                    self.vocabulary["last_practiced"].fillna(
+                        datetime.now(), inplace=True
+                    )
+
+            # Initialize correct_answers column if not present
+            if "correct_answers" not in self.vocabulary.columns:
+                self.vocabulary["correct_answers"] = 0
+            elif self.vocabulary["correct_answers"].isnull().any():
+                self.vocabulary["correct_answers"].fillna(0, inplace=True)
+
+            # Initialize times_practiced column if not present
+            if "times_practiced" not in self.vocabulary.columns:
+                self.vocabulary["times_practiced"] = 0
+            elif self.vocabulary["times_practiced"].isnull().any():
+                self.vocabulary["times_practiced"].fillna(0, inplace=True)
         else:
             self.vocabulary = pd.DataFrame(
                 columns=[
@@ -63,6 +100,7 @@ class VocabularyController:
                     "options",
                     "correct_answer",
                     "viewed",
+                    "last_practiced",
                 ]
             )
 
@@ -72,6 +110,14 @@ class VocabularyController:
         vocab_to_save = self.vocabulary.copy()
         if "options" in vocab_to_save.columns:
             vocab_to_save["options"] = vocab_to_save["options"].apply(str)
+
+        # Convert datetime objects to ISO format strings for saving
+        if "last_practiced" in vocab_to_save.columns:
+            # Handle different data types that might exist in the column
+            vocab_to_save["last_practiced"] = vocab_to_save["last_practiced"].apply(
+                lambda x: x.isoformat() if hasattr(x, "isoformat") else str(x)
+            )
+
         vocab_to_save.to_csv(self.vocab_file, index=False)
 
     def generate_words(
@@ -195,6 +241,10 @@ class VocabularyController:
     def add_words(self, words: List[Dict]):
         """Add new words to vocabulary"""
         for word in words:
+            # Skip if word already exists
+            if word["word"] in self.vocabulary["word"].values:
+                continue
+
             # Ensure options is a list of exactly 4 items
             options = word["options"]
             if not isinstance(options, list) or len(options) != 4:
@@ -214,6 +264,7 @@ class VocabularyController:
                 "options": options,
                 "correct_answer": word["correct_answer"],
                 "viewed": False,
+                "last_practiced": None,
             }
             self.vocabulary = pd.concat(
                 [self.vocabulary, pd.DataFrame([new_row])], ignore_index=True
@@ -225,19 +276,52 @@ class VocabularyController:
         return self.vocabulary[self.vocabulary["times_practiced"] == 0]
 
     def get_daily_words(self, count: int) -> pd.DataFrame:
-        """Get words for daily practice, prioritizing unpracticed words"""
-        # First get unpracticed words
+        """Get words for daily practice, prioritizing unpracticed words and including some old words"""
+        # First get unpracticed words (up to count-2 to leave room for review words)
         unpracticed = self.get_unpracticed_words()
-        if len(unpracticed) >= count:
-            return unpracticed.head(count)
+        unpracticed_count = min(len(unpracticed), count - 2)
+        selected_unpracticed = (
+            unpracticed.sample(n=unpracticed_count)
+            if unpracticed_count > 0
+            else pd.DataFrame()
+        )
 
-        # If we need more words, get the least practiced ones
-        needed = count - len(unpracticed)
-        practiced = self.vocabulary[self.vocabulary["times_practiced"] > 0]
-        least_practiced = practiced.nsmallest(needed, "times_practiced")
+        # Get words that were learned a long time ago (practiced >= 7 times)
+        old_words = self.vocabulary[
+            (
+                self.vocabulary["times_practiced"]
+                >= self.user_controller.min_practice_count
+            )
+            & (
+                self.vocabulary["correct_answers"] / self.vocabulary["times_practiced"]
+                >= self.user_controller.min_success_rate / 100
+            )
+        ]
 
-        # Combine unpracticed and least practiced words
-        return pd.concat([unpracticed, least_practiced])
+        # If we have old words, select 1-2 randomly
+        old_word_count = min(len(old_words), 2)
+        selected_old = (
+            old_words.sample(n=old_word_count) if old_word_count > 0 else pd.DataFrame()
+        )
+
+        # Calculate how many more words we need
+        needed = count - len(selected_unpracticed) - len(selected_old)
+
+        # Get the least practiced words for the remaining slots
+        practiced = self.vocabulary[
+            ~self.vocabulary.index.isin(selected_unpracticed.index)
+            & ~self.vocabulary.index.isin(selected_old.index)
+            & (self.vocabulary["times_practiced"] > 0)
+        ]
+        least_practiced = (
+            practiced.nsmallest(needed, "times_practiced")
+            if needed > 0
+            else pd.DataFrame()
+        )
+
+        # Combine all selected words and shuffle
+        result = pd.concat([selected_unpracticed, selected_old, least_practiced])
+        return result.sample(frac=1)  # Shuffle the final selection
 
     def needs_new_words(self, min_unpracticed: int = 5) -> bool:
         """Check if we need to generate new words based on unpracticed count"""
@@ -245,33 +329,65 @@ class VocabularyController:
         return unpracticed_count < min_unpracticed
 
     def get_test_words(self, count: int) -> pd.DataFrame:
-        """Get viewed words for testing, prioritizing those with low success rates or fewer attempts"""
-        # Filter for viewed words
-        viewed_words = self.vocabulary[self.vocabulary["viewed"]].copy()
+        """Get words for testing, prioritizing rarely practiced words and words practiced long ago"""
+        # Get words that have been viewed
+        viewed_words = self.vocabulary[self.vocabulary["viewed"] == True].copy()
 
-        if len(viewed_words) == 0:
+        if viewed_words.empty:
             return pd.DataFrame()  # Return empty DataFrame if no words have been viewed
 
-        # Calculate success rate (handle division by zero)
-        viewed_words["success_rate"] = viewed_words.apply(
-            lambda row: row["correct_answers"] / row["times_practiced"]
-            if row["times_practiced"] > 0
-            else 0,
-            axis=1,
-        )
+        # Calculate success rate for words that have been practiced
+        viewed_words["success_rate"] = 0.0  # Default for unpracticed words
+        mask = viewed_words["times_practiced"] > 0
+        if mask.any():
+            viewed_words.loc[mask, "success_rate"] = (
+                viewed_words.loc[mask, "correct_answers"]
+                / viewed_words.loc[mask, "times_practiced"]
+            )
+
+        # Split the selection into two parts:
+        # 1. Words rarely practiced or with lower success rates
+        # 2. Words practiced long ago
 
         # Sort by times_practiced (ascending) and success_rate (ascending)
-        # This prioritizes less practiced words and those with lower success rates
-        sorted_words = viewed_words.sort_values(
+        rare_practiced_words = viewed_words.sort_values(
             by=["times_practiced", "success_rate"], ascending=[True, True]
         )
 
-        return sorted_words.head(count)
+        # Sort by last_practiced (ascending - older first)
+        old_practiced_words = viewed_words.sort_values(
+            by=["last_practiced"], ascending=[True]
+        )
+
+        # Select half from rarely practiced and half from long ago practiced
+        half_count = count // 2
+        remainder = count % 2  # In case count is odd
+
+        rare_selected = rare_practiced_words.head(half_count + remainder)
+        old_selected = old_practiced_words[
+            ~old_practiced_words.index.isin(rare_selected.index)
+        ].head(half_count)
+
+        # Combine and shuffle
+        result = pd.concat([rare_selected, old_selected])
+        return result.sample(min(len(result), count))
+
+    def get_flashcard_words(self, count: int) -> pd.DataFrame:
+        """Get words for flashcards, only returning unviewed words"""
+        # Only get unviewed words
+        unviewed_words = self.vocabulary[self.vocabulary["viewed"] == False].copy()
+
+        if unviewed_words.empty:
+            return pd.DataFrame()  # Return empty DataFrame if no unviewed words
+
+        # Return a random sample of unviewed words
+        return unviewed_words.sample(min(len(unviewed_words), count))
 
     def mark_word_as_viewed(self, word: str):
         """Mark a word as viewed"""
         idx = self.vocabulary.index[self.vocabulary["word"] == word].tolist()[0]
         self.vocabulary.at[idx, "viewed"] = True
+        self.vocabulary.at[idx, "last_practiced"] = datetime.now()
         self.save_vocabulary()
 
     def update_word_stats(self, word: str, correct: bool):
@@ -280,13 +396,186 @@ class VocabularyController:
         self.vocabulary.at[idx, "times_practiced"] += 1
         if correct:
             self.vocabulary.at[idx, "correct_answers"] += 1
+        self.vocabulary.at[idx, "last_practiced"] = datetime.now()
         self.save_vocabulary()
 
     def get_progress(self) -> pd.DataFrame:
-        """Get vocabulary progress sorted by success rate"""
-        self.vocabulary["success_rate"] = self.vocabulary[
-            "correct_answers"
-        ] / self.vocabulary["times_practiced"].where(
-            self.vocabulary["times_practiced"] > 0, 1
+        """
+        Get vocabulary progress data categorized and sorted by learning status
+
+        Returns a DataFrame with the following columns:
+        - word: The word or phrase
+        - translation: The word's translation
+        - success_rate: The percentage of correct answers
+        - times_practiced: The number of times the word has been practiced
+        - learning_status: A numerical value representing the learning status:
+            0 = Not started (never practiced)
+            1 = Needs practice (practiced with low success rate)
+            2 = In progress (practiced with good progress)
+            3 = Learnt (meets minimum practice and success criteria)
+        """
+        # Get all words
+        all_words = self.vocabulary.copy()
+
+        if len(all_words) == 0:
+            return pd.DataFrame(
+                columns=[
+                    "word",
+                    "translation",
+                    "success_rate",
+                    "times_practiced",
+                    "learning_status",
+                ]
+            )
+
+        # Calculate success rate for words that have been practiced
+        all_words["success_rate"] = 0.0  # Default for unpracticed words
+        mask = all_words["times_practiced"] > 0
+        if mask.any():
+            all_words.loc[mask, "success_rate"] = (
+                all_words.loc[mask, "correct_answers"]
+                / all_words.loc[mask, "times_practiced"]
+            )
+
+        # Get learning thresholds from settings
+        min_practice = self.user_controller.min_practice_count
+        min_success = self.user_controller.min_success_rate / 100  # Convert to decimal
+
+        # Determine learning status for sorting
+        all_words["learning_status"] = 0  # Default: Not started
+
+        # Words that have been practiced but with low success rate
+        mask_needs_practice = (all_words["times_practiced"] > 0) & (
+            all_words["success_rate"] < 0.6
         )
-        return self.vocabulary.sort_values("success_rate", ascending=False)
+        all_words.loc[mask_needs_practice, "learning_status"] = 1  # Needs practice
+
+        # Words with good progress
+        mask_in_progress = (
+            (all_words["times_practiced"] > 0)
+            & (all_words["success_rate"] >= 0.6)
+            & (
+                (all_words["times_practiced"] < min_practice)
+                | (all_words["success_rate"] < min_success)
+            )
+        )
+        all_words.loc[mask_in_progress, "learning_status"] = 2  # In progress
+
+        # Words that are fully learnt
+        mask_learnt = (all_words["times_practiced"] >= min_practice) & (
+            all_words["success_rate"] >= min_success
+        )
+        all_words.loc[mask_learnt, "learning_status"] = 3  # Learnt
+
+        # Convert success rate to percentage
+        all_words["success_rate"] = all_words["success_rate"] * 100
+
+        # Sort by learning status (ascending) and success rate (descending)
+        sorted_words = all_words.sort_values(
+            by=["learning_status", "success_rate"], ascending=[True, False]
+        )
+
+        # Return the relevant columns
+        return sorted_words[
+            [
+                "word",
+                "translation",
+                "success_rate",
+                "times_practiced",
+                "learning_status",
+            ]
+        ]
+
+    def check_sentence_translation(
+        self,
+        original_sentence: str,
+        translation: str,
+        native_lang: str,
+        target_lang: str,
+    ) -> Dict:
+        """Check a sentence translation using OpenAI API"""
+        if not self.api_key:
+            raise ValueError("OpenAI API key not found in environment variables")
+
+        system_prompt = {
+            "role": "system",
+            "content": """You are a language learning assistant. Evaluate the user's translation of a sentence.
+            
+            You will receive:
+            1. Original sentence in one language
+            2. User's translation in another language
+            
+            Evaluate the translation and provide:
+            - is_correct: boolean indicating if the translation is correct (true or false)
+            - comment: helpful feedback on the translation
+            
+            For translations that are not correct, provide specific feedback about what's wrong
+            and how to improve it. Mention relevant grammar rules or vocabulary issues.
+            
+            Even for correct translations, provide a short encouraging comment or a note about
+            a nuance of the translation.
+            """,
+        }
+
+        user_prompt = {
+            "role": "user",
+            "content": f"""Evaluate this translation:
+            
+            Original ({native_lang}): {original_sentence}
+            Translation ({target_lang}): {translation}
+            """,
+        }
+
+        response: LlmChatCompletionResponse = self.llm_provider.get_chat_completion(
+            messages=[system_prompt, user_prompt],
+            response_format=TranslationCheckResponse,
+            temperature=0.3,
+            max_tokens=500,
+        )
+
+        # Process the response
+        check_result = TranslationCheckResponse.model_validate(response.dict_response)
+        return check_result.dict()
+
+    def get_translation_practice_sentences(self, count: int) -> pd.DataFrame:
+        """Get sentences for translation practice from vocabulary pool, balanced between practice frequency and time since last practice"""
+        if len(self.vocabulary) == 0:
+            return pd.DataFrame()
+
+        # Create a copy of the vocabulary to work with
+        all_words = self.vocabulary.copy()
+
+        # Split the selection into two parts:
+        # 1. Words that haven't been practiced much (fewer attempts)
+        # 2. Words that were practiced long ago
+
+        # Calculate success rate for words that have been practiced
+        all_words["success_rate"] = all_words.apply(
+            lambda row: row["correct_answers"] / row["times_practiced"]
+            if row["times_practiced"] > 0
+            else 0,
+            axis=1,
+        )
+
+        # Sort by times_practiced (ascending)
+        low_practice_words = all_words.sort_values(
+            by=["times_practiced"], ascending=[True]
+        )
+
+        # Sort by last_practiced (ascending - older first)
+        old_practice_words = all_words.sort_values(
+            by=["last_practiced"], ascending=[True]
+        )
+
+        # Select half from each category
+        half_count = count // 2
+        remainder = count % 2  # In case count is odd
+
+        low_practice_selected = low_practice_words.head(half_count + remainder)
+        old_practice_selected = old_practice_words[
+            ~old_practice_words.index.isin(low_practice_selected.index)
+        ].head(half_count)
+
+        # Combine and shuffle
+        result = pd.concat([low_practice_selected, old_practice_selected])
+        return result.sample(min(len(result), count))

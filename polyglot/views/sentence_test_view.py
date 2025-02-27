@@ -1,15 +1,22 @@
+import random
 import customtkinter as ctk
 from typing import Callable
 from polyglot.controllers.vocabulary_controller import VocabularyController
+from polyglot.views.base_view import BaseView
 
 
-class SentenceTestView(ctk.CTkFrame):
+class SentenceTestView(BaseView):
     def __init__(
-        self, parent, vocab_controller: VocabularyController, on_complete: Callable
+        self,
+        parent,
+        vocab_controller: VocabularyController,
+        on_complete: Callable,
+        on_menu_click: Callable = None,
     ):
         super().__init__(parent)
         self.vocab_controller = vocab_controller
         self.on_complete = on_complete
+        self.on_menu_click = on_menu_click
 
         self.current_word_idx = 0
         self.test_words = None
@@ -19,6 +26,10 @@ class SentenceTestView(ctk.CTkFrame):
 
         self.setup_ui()
         self.load_test_words()
+
+        # Add back to menu button if callback provided
+        if self.on_menu_click:
+            self.add_back_to_menu_button(self.on_menu_click)
 
         # Bind space key to check/next
         self.master.bind("<space>", lambda e: self.handle_space())
@@ -105,6 +116,13 @@ class SentenceTestView(ctk.CTkFrame):
             if not isinstance(options, list) or len(options) != 4:
                 raise ValueError(f"Word {word['word']} does not have exactly 4 options")
 
+            correct_answer = word["correct_answer"]
+            shuffled_options = options.copy()
+            random.shuffle(shuffled_options)
+
+            # Store the new correct answer index
+            self.correct_answer_idx = shuffled_options.index(correct_answer)
+
             # Clear previous state
             self.feedback_label.configure(text="")
             self.translation_label.configure(text="")
@@ -115,7 +133,7 @@ class SentenceTestView(ctk.CTkFrame):
             self.sentence_label.configure(text=word["sentence_to_fill"])
 
             # Update options
-            for i, option in enumerate(options):
+            for i, option in enumerate(shuffled_options):
                 self.option_buttons[i].configure(
                     text=option, state="normal", fg_color=("#2B2B2B", "#242424")
                 )
@@ -145,14 +163,12 @@ class SentenceTestView(ctk.CTkFrame):
             and self.selected_option is not None
         ):
             word = self.test_words.iloc[self.current_word_idx]
-            selected_answer = word["options"][self.selected_option]
+            selected_answer = self.option_buttons[self.selected_option].cget("text")
 
-            is_correct = selected_answer == word["correct_answer"]
+            is_correct = self.selected_option == self.correct_answer_idx
 
-            # Update word statistics
             self.vocab_controller.update_word_stats(word["word"], is_correct)
 
-            # Update UI
             if is_correct:
                 self.feedback_label.configure(
                     text="Correct! ✓\nPress SPACE to continue", text_color="green"
@@ -165,16 +181,12 @@ class SentenceTestView(ctk.CTkFrame):
                     text_color="red",
                 )
                 self.option_buttons[self.selected_option].configure(fg_color="red")
-                # Highlight correct answer
-                correct_idx = word["options"].index(word["correct_answer"])
-                self.option_buttons[correct_idx].configure(fg_color="green")
+                self.option_buttons[self.correct_answer_idx].configure(fg_color="green")
 
-            # Show translation
             self.translation_label.configure(
                 text=f"Translation: {word['sentence_to_fill_translation']}"
             )
 
-            # Disable options
             for btn in self.option_buttons:
                 btn.configure(state="disabled")
 

@@ -2,18 +2,29 @@ import customtkinter as ctk
 from typing import Callable
 import pandas as pd
 from polyglot.controllers.vocabulary_controller import VocabularyController
+from polyglot.views.base_view import BaseView
+from datetime import datetime
 
 
-class ProgressView(ctk.CTkFrame):
+class ProgressView(BaseView):
     def __init__(
-        self, parent, vocab_controller: VocabularyController, on_complete: Callable
+        self,
+        parent,
+        vocab_controller: VocabularyController,
+        on_complete: Callable,
+        on_menu_click: Callable = None,
     ):
         super().__init__(parent)
         self.vocab_controller = vocab_controller
         self.on_complete = on_complete
+        self.on_menu_click = on_menu_click
 
         self.setup_ui()
         self.load_progress()
+
+        # Add back to menu button if callback provided
+        if self.on_menu_click:
+            self.add_back_to_menu_button(self.on_menu_click)
 
     def setup_ui(self):
         """Set up the main UI components"""
@@ -79,19 +90,19 @@ class ProgressView(ctk.CTkFrame):
         self.nav_frame = ctk.CTkFrame(self)
         self.nav_frame.pack(side="bottom", pady=20, padx=20, fill="x")
 
-        # Continue button
-        self.continue_btn = ctk.CTkButton(
-            self.nav_frame,
-            text="Continue Learning",
-            command=self.on_complete,
-            width=200,  # Make button wider
-        )
-        self.continue_btn.pack(side="right", padx=20)
-
     def load_progress(self):
         """Load and display progress data"""
         # Get progress data
         progress_data = self.vocab_controller.get_progress()
+
+        # Ensure required columns exist
+        required_columns = ["times_practiced", "correct_answers", "last_practiced"]
+        for col in required_columns:
+            if col not in progress_data.columns:
+                if col == "times_practiced" or col == "correct_answers":
+                    progress_data[col] = 0
+                elif col == "last_practiced":
+                    progress_data[col] = datetime.now()
 
         # Calculate statistics
         total_words = len(progress_data)
@@ -103,9 +114,11 @@ class ProgressView(ctk.CTkFrame):
         )  # Convert to decimal
 
         # Words learnt (practiced >= min_practice times with >= min_success rate)
+        # Avoid division by zero by adding a condition
         words_learnt = len(
             progress_data[
                 (progress_data["times_practiced"] >= min_practice)
+                & (progress_data["times_practiced"] > 0)  # Avoid division by zero
                 & (
                     progress_data["correct_answers"] / progress_data["times_practiced"]
                     >= min_success
@@ -166,18 +179,53 @@ class ProgressView(ctk.CTkFrame):
             side="left", padx=10
         )
 
-        ctk.CTkLabel(
-            headers_frame, text="Success Rate", font=("Helvetica", 14, "bold")
-        ).pack(side="right", padx=10)
+        ctk.CTkLabel(headers_frame, text="Status", font=("Helvetica", 14, "bold")).pack(
+            side="right", padx=10
+        )
 
         # Add separator
         separator = ctk.CTkFrame(self.vocab_frame, height=2, fg_color="gray")
         separator.pack(fill="x", pady=5)
 
+        # Section headers for different status categories
+        current_section = -1
+        section_names = ["Not Started", "Needs Practice", "In Progress", "Learnt"]
+        section_colors = [
+            "#333333",
+            "#882222",
+            "#996600",
+            "#227722",
+        ]  # Dark, Red, Orange, Green
+
         # Display words
         for _, word in progress_data.iterrows():
+            # Add section header if we're entering a new section
+            status = int(word["learning_status"])
+            if status != current_section:
+                current_section = status
+
+                # Add section divider
+                if status > 0:  # Don't add divider before the first section
+                    divider = ctk.CTkFrame(self.vocab_frame, height=1, fg_color="gray")
+                    divider.pack(fill="x", pady=10)
+
+                # Add section header
+                section_frame = ctk.CTkFrame(self.vocab_frame)
+                section_frame.pack(fill="x", pady=5)
+                section_label = ctk.CTkLabel(
+                    section_frame,
+                    text=f"--- {section_names[status]} ---",
+                    font=("Helvetica", 16, "bold"),
+                )
+                section_label.pack(pady=5)
+
+            # Word frame
             word_frame = ctk.CTkFrame(self.vocab_frame)
             word_frame.pack(fill="x", pady=2)
+
+            # Set appropriate background color based on status
+            if status >= 0 and status < len(section_colors):
+                word_frame.configure(fg_color=section_colors[status])
 
             # Word label
             word_label = ctk.CTkLabel(
@@ -187,41 +235,13 @@ class ProgressView(ctk.CTkFrame):
             )
             word_label.pack(side="left", padx=10)
 
-            # Progress indicators
-            times_practiced = word["times_practiced"]
-
-            # Determine status and color
-            # Get learning thresholds from settings
-            min_practice = self.vocab_controller.user_controller.min_practice_count
-            min_success = (
-                self.vocab_controller.user_controller.min_success_rate / 100
-            )  # Convert to decimal
-
-            if (
-                times_practiced >= min_practice
-                and (word["correct_answers"] / times_practiced) >= min_success
-            ):
-                word_frame.configure(fg_color="green")  # Learnt
-                status = "Learnt"
-            elif times_practiced > 0:
-                success_rate = (word["correct_answers"] / times_practiced) * 100
-                if success_rate >= 60:
-                    word_frame.configure(fg_color="orange")  # Good progress
-                    status = "In Progress"
-                else:
-                    word_frame.configure(fg_color="red")  # Needs practice
-                    status = "Needs Practice"
-            else:
-                status = "Not Started"
-
             # Create progress text
+            times_practiced = word["times_practiced"]
             if times_practiced > 0:
-                success_rate = (word["correct_answers"] / times_practiced) * 100
-                progress_text = (
-                    f"{success_rate:.1f}% ({times_practiced} attempts) - {status}"
-                )
+                success_rate = word["success_rate"]  # Already as percentage
+                progress_text = f"{success_rate:.1f}% ({times_practiced} attempts)"
             else:
-                progress_text = status
+                progress_text = "Not practiced yet"
 
             progress_label = ctk.CTkLabel(
                 word_frame,
