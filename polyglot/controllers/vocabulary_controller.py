@@ -49,42 +49,81 @@ class VocabularyController:
     def load_vocabulary(self):
         """Load vocabulary from CSV file"""
         if self.vocab_file.exists():
-            self.vocabulary = pd.read_csv(self.vocab_file)
-            # Convert string representation of options list back to actual list
-            if "options" in self.vocabulary.columns:
-                self.vocabulary["options"] = self.vocabulary["options"].apply(eval)
+            try:
+                # First load with minimal type specifications to avoid NA errors
+                self.vocabulary = pd.read_csv(self.vocab_file)
 
-            # Initialize last_practiced for existing entries if not present
-            if "last_practiced" not in self.vocabulary.columns:
-                self.vocabulary["last_practiced"] = datetime.now()
-            else:
-                # Convert string dates to datetime objects
-                try:
-                    self.vocabulary["last_practiced"] = pd.to_datetime(
-                        self.vocabulary["last_practiced"]
+                # Convert options in a vectorized way if present
+                if "options" in self.vocabulary.columns:
+                    # Check if options column is string type before applying eval
+                    self.vocabulary["options"] = self.vocabulary["options"].apply(
+                        lambda x: eval(x) if isinstance(x, str) else x
                     )
-                except Exception:
-                    # If conversion fails, set to current datetime
+
+                # Initialize or convert last_practiced
+                if "last_practiced" not in self.vocabulary.columns:
                     self.vocabulary["last_practiced"] = datetime.now()
+                else:
+                    # Convert string dates to datetime objects
+                    try:
+                        self.vocabulary["last_practiced"] = pd.to_datetime(
+                            self.vocabulary["last_practiced"], errors="coerce"
+                        )
+                        # Fill NaN values with current datetime (fixed to avoid FutureWarning)
+                        mask = self.vocabulary["last_practiced"].isna()
+                        self.vocabulary.loc[mask, "last_practiced"] = datetime.now()
+                    except Exception:
+                        # If conversion fails, set to current datetime
+                        self.vocabulary["last_practiced"] = datetime.now()
 
-                # Fill NaN values with current datetime
-                if self.vocabulary["last_practiced"].isnull().any():
-                    self.vocabulary["last_practiced"].fillna(
-                        datetime.now(), inplace=True
-                    )
+                # Ensure required columns exist with default values
+                required_columns = {
+                    "correct_answers": 0,
+                    "times_practiced": 0,
+                    "viewed": False,
+                }
 
-            # Initialize correct_answers column if not present
-            if "correct_answers" not in self.vocabulary.columns:
-                self.vocabulary["correct_answers"] = 0
-            elif self.vocabulary["correct_answers"].isnull().any():
-                self.vocabulary["correct_answers"].fillna(0, inplace=True)
+                for col, default in required_columns.items():
+                    if col not in self.vocabulary.columns:
+                        self.vocabulary[col] = default
+                    elif self.vocabulary[col].isnull().any():
+                        # Use .loc instead of fillna with inplace=True
+                        mask = self.vocabulary[col].isnull()
+                        self.vocabulary.loc[mask, col] = default
 
-            # Initialize times_practiced column if not present
-            if "times_practiced" not in self.vocabulary.columns:
-                self.vocabulary["times_practiced"] = 0
-            elif self.vocabulary["times_practiced"].isnull().any():
-                self.vocabulary["times_practiced"].fillna(0, inplace=True)
+                # Convert integer columns after filling NAs
+                integer_columns = ["times_practiced", "correct_answers"]
+                for col in integer_columns:
+                    if col in self.vocabulary.columns:
+                        self.vocabulary[col] = self.vocabulary[col].astype(int)
+
+                # Convert boolean columns
+                if "viewed" in self.vocabulary.columns:
+                    self.vocabulary["viewed"] = self.vocabulary["viewed"].astype(bool)
+
+            except Exception as e:
+                print(f"Error loading vocabulary: {e}")
+                # Create a new empty vocabulary as fallback
+                self.vocabulary = pd.DataFrame(
+                    columns=[
+                        "word",
+                        "translation",
+                        "example",
+                        "example_translation",
+                        "times_practiced",
+                        "correct_answers",
+                        "topic",
+                        "level",
+                        "sentence_to_fill",
+                        "sentence_to_fill_translation",
+                        "options",
+                        "correct_answer",
+                        "viewed",
+                        "last_practiced",
+                    ]
+                )
         else:
+            # Create empty DataFrame with all required columns
             self.vocabulary = pd.DataFrame(
                 columns=[
                     "word",
@@ -106,8 +145,10 @@ class VocabularyController:
 
     def save_vocabulary(self):
         """Save vocabulary to CSV file"""
-        # Convert options list to string representation for saving
+        # Create a copy for saving to avoid modifying the original
         vocab_to_save = self.vocabulary.copy()
+
+        # Process options columns efficiently
         if "options" in vocab_to_save.columns:
             vocab_to_save["options"] = vocab_to_save["options"].apply(str)
 
@@ -118,6 +159,7 @@ class VocabularyController:
                 lambda x: x.isoformat() if hasattr(x, "isoformat") else str(x)
             )
 
+        # Use efficient CSV writing
         vocab_to_save.to_csv(self.vocab_file, index=False)
 
     def generate_words(
@@ -579,3 +621,34 @@ class VocabularyController:
         # Combine and shuffle
         result = pd.concat([low_practice_selected, old_practice_selected])
         return result.sample(min(len(result), count))
+
+    def delete_word(self, word: str) -> bool:
+        """Delete a word from the vocabulary
+
+        Args:
+            word: The word to delete
+
+        Returns:
+            bool: True if word was successfully deleted, False otherwise
+        """
+        try:
+            # Find the word and remove it
+            word_indices = self.vocabulary.index[
+                self.vocabulary["word"] == word
+            ].tolist()
+            if not word_indices:
+                print(f"Word '{word}' not found in vocabulary")
+                return False
+
+            # Drop all matching indices (should usually be just one)
+            self.vocabulary = self.vocabulary.drop(word_indices)
+
+            # Reset index after dropping rows
+            self.vocabulary = self.vocabulary.reset_index(drop=True)
+
+            # Save the updated vocabulary
+            self.save_vocabulary()
+            return True
+        except Exception as e:
+            print(f"Error deleting word: {e}")
+            return False
